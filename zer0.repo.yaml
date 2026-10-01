@@ -1,0 +1,45 @@
+version: 1
+repo: kvnloo/hermes-agent-self-evolution
+id: hermes-agent-self-evolution
+kind: suite
+summary: Evolutionary optimization engine for Hermes skills, prompts, tool descriptions, and candidate code using DSPy/GEPA with measured guardrails and human-reviewed promotion.
+
+architecture:
+  subsystems:
+    - id: dataset-generation
+      name: Evaluation dataset generation
+      kind: evidence
+      summary: Builds synthetic and session-derived evaluation datasets used to compare candidate variants.
+      paths: [datasets/, evolution/]
+    - id: evolutionary-search
+      name: Evolutionary search
+      kind: learning
+      summary: Uses DSPy and GEPA to propose and iteratively improve bounded candidate variants from execution traces.
+      paths: [evolution/]
+      depends_on: [dataset-generation]
+    - id: constraint-gates
+      name: Constraint gates
+      kind: governance
+      summary: Requires tests, size limits, caching compatibility, semantic preservation, and explicit PR review before promotion.
+      paths: [evolution/, tests/, PLAN.md]
+      depends_on: [evolutionary-search]
+    - id: reporting
+      name: Experiment reports
+      kind: evidence
+      summary: Materializes optimization outcomes, comparisons, and promotion evidence without mutating Hermes directly.
+      paths: [reports/, generate_report.py]
+      depends_on: [constraint-gates]
+
+  provides_interfaces: []
+  consumes_interfaces: []
+  produces_representations: []
+  consumes_representations: []
+
+  boundaries:
+    owns: [Hermes candidate evolution, evaluation datasets, optimization guardrails, experiment reports]
+    not_here: [production Hermes execution, autonomous main-branch merge, canonical Evolution Lab authority, Zer0 architecture authority]
+
+  evidence:
+    docs: [README.md, PLAN.md]
+    tests: [tests/]
+    schemas: []
