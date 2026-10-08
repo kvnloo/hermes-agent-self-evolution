@@ -61,7 +61,7 @@ GEPA is the star — it's integrated into DSPy, reads execution traces to unders
 │  2. BUILD EVALUATION DATASET                │
 │     - Mine session_db for real usage examples │
 │     - Or use hand-crafted test cases         │
-│     - Split: train / validation / test       │
+│     - Group by work-item lineage before split│
 │                                             │
 │  3. WRAP AS DSPy MODULE                     │
 │     - Skill text → dspy.Signature            │
@@ -75,8 +75,9 @@ GEPA is the star — it's integrated into DSPy, reads execution traces to unders
 │                                             │
 │  5. EVALUATE & COMPARE                      │
 │     - Run optimized version on held-out test  │
-│     - Compare: accuracy, cost, latency        │
-│     - Statistical significance check          │
+│     - Compare: verified outcomes + weak judge │
+│       signals, accuracy, cost, latency         │
+│     - Statistical significance / calibration  │
 │                                             │
 │  6. DEPLOY (with approval)                  │
 │     - Git commit the improved version         │
@@ -84,6 +85,43 @@ GEPA is the star — it's integrated into DSPy, reads execution traces to unders
 │     - Rollback mechanism via git revert       │
 └─────────────────────────────────────────────┘
 ```
+
+### Evaluation evidence contract
+
+Self-evolution must keep **semantic judgment** separate from **verified outcome**.
+
+Signal tiers:
+
+| Tier | Examples | Use |
+| --- | --- | --- |
+| `verified` | tests/CI, known-answer benchmark, planted-bug detection, environment/artifact success, explicit human acceptance/correction | promotion anchor |
+| `weak_semantic` | JEV typed probabilities, LLM-as-judge rubric scores, synthetic expected-behavior rubrics | optimizer reflection, weak supervision, ranking/features |
+| `adjudicated` | human review of ambiguous/high-value disagreement cases | explicit labeled resolution |
+
+JEV is the seed cheap semantic observer, not a required dependency and not ground truth. When used, preserve the question-pack/version, model/backend revision, complete probability distribution/confidence where available, latency/cost, and the state/work-item lineage it observed.
+
+An LLM-as-judge follows the same rule: record the judge/model/rubric revision and do not let its score mint `verified` success.
+
+Split examples by lineage, not individual turns:
+
+```text
+event
+  -> trace/session
+    -> attempt lineage
+      -> work item
+        -> task family
+```
+
+All retries, alternate candidate responses, regenerated rubrics, and repeated observer readings for one work item stay in the same train/validation/holdout group.
+
+Where an objective evaluator exists, it outranks a semantic judge for promotion. A skill can use JEV/LLM scores to guide GEPA reflection while tests/benchmarks/environment outcomes decide whether the candidate ships.
+
+Cross-stack ownership should be reused rather than duplicated:
+
+- z0intelligence: typed observer/DecisionBackend + replay/evaluation receipt contract;
+- Tokenomics: objective measurement and verified-outcome semantics;
+- Evolution Lab: grouped cross-candidate comparison, calibration/Pareto analysis, promotion methodology;
+- this repo: Hermes-specific GEPA/DSPy candidate generation and adapters.
 
 ### Integration Points with Existing Hermes Infrastructure
 
@@ -310,9 +348,10 @@ If a phase doesn't produce meaningful improvements (evolved variants aren't bett
    **Source B: SessionDB mining (real usage, LLM-as-judge scored)**
    - Query SessionDB for sessions where the skill was loaded (search for skill name in messages)
    - Extract the task the user gave and the agent's full response
-   - Use LLM-as-judge to score each (task, response) pair on a rubric
-   - High-scoring pairs become "good" examples; low-scoring pairs become failure cases for GEPA's reflective analysis
-   - This improves over time as more real usage accumulates
+   - Use LLM-as-judge and/or a typed JEV observer to score semantic properties of each (task, response) pair
+   - Keep those readings as `weak_semantic` with judge/question provenance; they do not become gold merely because the judge is confident
+   - High/low semantic readings can guide GEPA reflection, while independent outcomes or adjudication determine promotion
+   - This improves over time as real usage accumulates and outcome joins become available
 
    **Source C: Hand-curated golden sets (optional, high-value skills)**
    - Manually written test cases with expected outputs
@@ -325,8 +364,8 @@ If a phase doesn't produce meaningful improvements (evolved variants aren't bett
    - `github-code-review`: Create a PR with planted issues, check if they're caught
    - Not all skills have natural auto-eval — this is a bonus, not a requirement
 
-   **Scoring: LLM-as-judge with rubrics**
-   For most skills, there's no binary right/wrong — quality is subjective. The fitness function uses an LLM judge that scores on a rubric:
+   **Scoring: semantic judges + independent outcomes**
+   For many skills, there is no single binary right/wrong label. An LLM judge or typed JEV observer can score rubric dimensions, but these remain weak semantic signals. When a task-specific automatic evaluator exists, its outcome is the promotion anchor. For genuinely subjective cases, use explicit human adjudication for the held-out decision. Semantic rubric dimensions can include:
    - Did the agent follow the skill's procedure? (0-1)
    - Was the output correct/useful? (0-1)
    - Was it concise (within token budget)? (0-1)
@@ -338,9 +377,10 @@ If a phase doesn't produce meaningful improvements (evolved variants aren't bett
    - Saves snapshots for pause/resume
 
 4. **Comparison & deployment** — Side-by-side evaluation:
-   - Runs baseline vs optimized on held-out test set
+   - Runs baseline vs optimized on lineage-grouped held-out work items
+   - Reports weak semantic judge scores separately from independent verified/adjudicated outcomes
    - Shows diff of what changed
-   - Commits improved version with evolution metadata
+   - Requires at least one independent promotion anchor before committing an "improved" version with evolution metadata
 
 **CLI interface:**
 ```bash

@@ -74,6 +74,27 @@ Every evolved variant must pass:
 3. **Caching compatibility** — No mid-conversation changes
 4. **Semantic preservation** — Must not drift from original purpose
 5. **PR review** — All changes go through human review, never direct commit
+6. **Outcome-grounded promotion** — LLM/JEV judge scores are weak semantic signals; a promoted variant needs an independent anchor such as tests, benchmark outcomes, environment success, or explicit human adjudication. Related attempts from one work item stay in the same holdout group.
+
+## Evaluation signals
+
+The optimizer may use cheap semantic observers to understand *why* a run looks good or bad. JEV is a useful seed observer because it can return typed probability distributions without generating prose; an LLM-as-judge remains useful for richer rubrics.
+
+Neither is automatically ground truth.
+
+```text
+execution traces
+  + objective counters/outcomes
+  + JEV / LLM semantic readings
+          |
+          v
+   grouped held-out evaluation
+          |
+          v
+   independently credited mutation
+```
+
+Keep judge/observer provenance and work-item lineage with every example. Prefer task-specific automatic verification whenever it exists. Use semantic judges as weak supervision and reflection signals, then let independent outcomes decide promotion.
 
 ## Full Plan
 
