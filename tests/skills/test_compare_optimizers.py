@@ -115,16 +115,16 @@ def test_provider_backoff_is_bounded_and_receipts_redact_secrets(tmp_path, monke
     response = SimpleNamespace(status_code=429, headers={}, request=SimpleNamespace())
     client = experiment.ProviderClient('groq', tmp_path / 'receipts.jsonl')
     client._client = Mock()
-    client._client.chat.completions.create.side_effect = RateLimitError('limited', response=response, body={})
+    client._client.chat.completions.with_raw_response.create.side_effect = RateLimitError('limited', response=response, body={})
     sleeps = []
     monkeypatch.setattr(experiment.time, 'sleep', sleeps.append)
     with pytest.raises(experiment.EvaluationFailure, match='http_429'):
         client.complete([{'role': 'user', 'content': 'task'}], purpose='selection', seed=0, max_tokens=10)
     assert sleeps == [4, 8]
-    assert client._client.chat.completions.create.call_count == 3
+    assert client._client.chat.completions.with_raw_response.create.call_count == 3
     receipt = (tmp_path / 'receipts.jsonl').read_text()
     assert receipt.count('http_429') == 3
     assert 'Authorization' not in receipt
     with pytest.raises(experiment.EvaluationFailure):
         client.complete([], purpose='selection', seed=0, max_tokens=10)
-    assert client._client.chat.completions.create.call_count == 3
+    assert client._client.chat.completions.with_raw_response.create.call_count == 3

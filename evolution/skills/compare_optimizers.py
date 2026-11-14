@@ -57,10 +57,17 @@ def append(path: Path, value) -> None:
         stream.write(json.dumps(value, allow_nan=False) + '\n')
 
 
+def quota_delay(headers, usage):
+    """Keep successful traffic below 75 percent of an observed token-per-minute limit."""
+    limit = int(headers.get('x-ratelimit-limit-tokens', 0))
+    return max(2, usage.get('total_tokens', 0) * 80 / limit) if limit > 0 else 2
+
+
 class ProviderClient:
     """Approved lanes only, at most three attempts, with secret-free receipts."""
 
     _requests: Counter = Counter()
+    _next_request: dict[str, float] = {}
 
     def __init__(self, lane: str, receipts: Path):
         self.base, self.key_name, self.model = LANES[lane]
@@ -87,14 +94,22 @@ class ProviderClient:
                     raise EvaluationFailure('task_attempt_budget')
                 self._task_attempts[task_key] += 1
             self._requests[self.base] += 1
+            delay = max(0, self._next_request.get(self.base, 0) - time.monotonic())
+            if delay:
+                time.sleep(delay)
             started = time.monotonic()
-            receipt = dict(model=self.model, purpose=purpose, seed=seed, attempt=attempt + 1, **self.context)
+            receipt = dict(model=self.model, purpose=purpose, seed=seed, attempt=attempt + 1,
+                           pacing_seconds=delay, **self.context)
+            extra = {'chat_template_kwargs': {'enable_thinking': False}} if self.model == LANES['nim-lightning'][2] else {}
             try:
-                response = self._client.chat.completions.create(
+                raw = self._client.chat.completions.with_raw_response.create(
                     model=self.model, messages=messages, seed=seed,
                     temperature=0.8 if purpose == 'generation' else 0,
-                    max_tokens=max_tokens,
+                    max_tokens=max_tokens, response_format={'type': 'json_object'}, extra_body=extra,
                 )
+                response = raw.parse()
+                receipt['quota'] = {k: v for k, v in raw.headers.items()
+                                    if k.startswith('x-ratelimit') or k == 'retry-after'}
                 choice = response.choices[0]
                 receipt.update(status='valid', usage=response.usage.model_dump() if response.usage else {},
                                finish_reason=choice.finish_reason)
@@ -104,7 +119,9 @@ class ProviderClient:
                 return choice.message.content
             except APIStatusError as exc:
                 reason = f'http_{exc.status_code}'
-                receipt.update(status='invalid', reason=reason)
+                receipt.update(status='invalid', reason=reason,
+                               quota={k: v for k, v in exc.response.headers.items()
+                                      if k.startswith('x-ratelimit') or k == 'retry-after'})
                 if exc.status_code not in (401, 429, 500, 502, 503, 504) or attempt == 2:
                     if exc.status_code in (401, 429):
                         self._blocked = reason
@@ -116,7 +133,13 @@ class ProviderClient:
             finally:
                 receipt['seconds'] = time.monotonic() - started
                 append(self.receipts, receipt)
-            time.sleep(2 ** (attempt + 2))
+                if receipt.get('usage'):
+                    self._next_request[self.base] = started + quota_delay(receipt.get('quota', {}), receipt['usage'])
+            retry_after = float(receipt.get('quota', {}).get('retry-after', 0))
+            if retry_after > 120:
+                self._blocked = receipt['reason']
+                raise EvaluationFailure(self._blocked)
+            time.sleep(max(2 ** (attempt + 2), retry_after))
         raise EvaluationFailure('attempt_limit')
 
 
@@ -153,7 +176,7 @@ class DevelopmentEvaluator:
         full = reassemble_skill(self.frontmatter, body)
         results = self.validator.validate_all(full, 'skill')
         results.append(self.validator._check_growth(body, self.baseline, 'skill'))
-        return all(result.passed for result in results)
+        return bool(body.strip()) and all(result.passed for result in results)
 
     def one(self, body, example, purpose='selection'):
         if purpose == 'selection':
@@ -163,7 +186,7 @@ class DevelopmentEvaluator:
         response = self.client.complete([
             {'role': 'system', 'content': body},
             {'role': 'user', 'content': example.task_input},
-        ], purpose=purpose, seed=self.seed, max_tokens=1024)
+        ], purpose=purpose, seed=self.seed, max_tokens=2048)
         score = skill_fitness_metric(
             dspy.Example(task_input=example.task_input, expected_behavior=example.expected_behavior),
             dspy.Prediction(output=response),
@@ -201,7 +224,8 @@ class CandidateProposer:
         payload = dict(parent=parent, count=count,
                        max_body_characters=int(len(self.evaluator.baseline) * 1.2),
                        training_cases=[example.to_dict() for example in self.training],
-                       observations=[asdict(item) for item in history[-4:]])
+                       observations=[dict(text=item.text, score=item.score, feedback=item.feedback[:1500])
+                                     for item in history[-2:]])
         response = self.client.complete([
             {'role': 'system', 'content': (
                 'Improve the supplied code-review skill using only the development evidence. '
@@ -211,7 +235,7 @@ class CandidateProposer:
                 'Vary the approaches, do not merely change wording. Never use a holdout label.'
             )},
             {'role': 'user', 'content': json.dumps(payload)},
-        ], purpose='generation', seed=rng.randrange(2 ** 31), max_tokens=8192)
+        ], purpose='generation', seed=rng.randrange(2 ** 31), max_tokens=3072)
         try:
             candidates = json.loads(response)['candidates']
             if not isinstance(candidates, list) or len(candidates) != count or any(not isinstance(c, str) for c in candidates):
@@ -380,6 +404,7 @@ def run_comparison(skill_path, dataset_path, output, seeds, rounds, top_k, popul
         if calls and row['status'] == 'valid' and (row['provider_attempts'].get('selection') != budget or
                                                   row['provider_attempts'].get('holdout') != (rounds + 1) * len(dataset.holdout)):
             row.update(status='invalid', reason='unequal_attempt_budget')
+        save(output / f"{row['seed']}-{row['arm']}" / 'status.json', row)
     summary = dict(config=config, rows=rows, evidence='single-turn fixture measurements; no live-agent promotion',
                    spearman_scope='pre-update predictions on selected development candidates only; selection biased')
     save(output / 'summary.json', summary)
