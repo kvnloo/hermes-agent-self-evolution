@@ -28,6 +28,14 @@ def export(run: Path, source: Path, destination: Path):
     summary = json.loads((run / 'summary.json').read_text())
     provenance = json.loads(source.read_text())
     rows = [{field: row.get(field) for field in ROW_FIELDS} for row in summary['rows']]
+    config = summary['config']
+    for row in summary['rows']:
+        if row['status'] == 'valid':
+            checkpoints = row.get('checkpoints', [])
+            if (not checkpoints or row['selection_calls'] != config['selection_budget'] or
+                    len(checkpoints) != config['rounds'] + 1 or
+                    row['holdout_calls'] <= 0 or row['holdout_calls'] % len(checkpoints)):
+                raise ValueError('A valid row violates the matched-budget publication boundary')
     checkpoints = [dict(seed=row['seed'], arm=row['arm'], **checkpoint)
                    for row in summary['rows'] if row['status'] == 'valid'
                    for checkpoint in row.get('checkpoints', [])]

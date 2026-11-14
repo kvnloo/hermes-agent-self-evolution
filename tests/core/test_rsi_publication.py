@@ -37,6 +37,20 @@ def test_every_new_python_file_needs_reuse_declaration(tmp_path):
     assert check(source) == []
 
 
+def test_export_rejects_a_valid_label_on_an_incomplete_budget(tmp_path):
+    export = load_script('export_rsi_results').export
+    run = tmp_path / 'run'
+    run.mkdir()
+    (run / 'summary.json').write_text(json.dumps(dict(
+        rows=[dict(seed=0, arm='guided', status='valid', selection_calls=1, holdout_calls=0)],
+        config={'seeds': [0], 'selection_budget': 28, 'rounds': 3})))
+    source = tmp_path / 'source.json'
+    source.write_text(json.dumps({'source_commit': 'a' * 40}))
+    import pytest
+    with pytest.raises(ValueError, match='matched-budget'):
+        export(run, source, tmp_path / 'public')
+
+
 def test_export_allowlists_aggregates_without_raw_prompt_fields(tmp_path):
     export = load_script('export_rsi_results').export
     run = tmp_path / 'run'

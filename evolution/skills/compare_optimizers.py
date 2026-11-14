@@ -100,7 +100,7 @@ class ProviderClient:
             started = time.monotonic()
             receipt = dict(model=self.model, purpose=purpose, seed=seed, attempt=attempt + 1,
                            pacing_seconds=delay, **self.context)
-            extra = {'chat_template_kwargs': {'enable_thinking': False}} if self.model == LANES['nim-lightning'][2] else {}
+            extra = {'chat_template_kwargs': {'enable_thinking': False}} if self.model in (LANES['nim-lightning'][2], LANES['nim-ultra'][2]) else {}
             try:
                 raw = self._client.chat.completions.with_raw_response.create(
                     model=self.model, messages=messages, seed=seed,
