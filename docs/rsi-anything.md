@@ -19,9 +19,11 @@ python -m evolution.skills.compare_optimizers \
   --seeds 0,1,2 --rounds 3 --population-size 4 --top-k 2
 ```
 
-The default task and proposal model is `qwen/qwen3.8-27b` on Groq. The only other supported lanes are the two Nemotron models listed by `--help`. The OpenAI-compatible client is a transport library, not a model under test.
+The default task and proposal model is `qwen/qwen3.8-27b` on Groq. Set both lane options to `nim-lightning` to use non-thinking Nemotron Lightning. The only other supported lane is Nemotron Ultra. The OpenAI-compatible client is a transport library, not a model under test.
 
-The runner refuses an existing output directory. A failed request never receives a fabricated fitness score. It records invalid arms and returns a nonzero exit status when any arm is incomplete. HTTP 401, 429, and transient server errors receive at most three attempts with exponential delays. A persistent authentication or rate-limit failure closes that client lane for the rest of the run. A hard cap limits each provider to 2,900 attempts per process.
+Nemotron Lightning uses the vendor's documented `enable_thinking=False` mode. Task responses and proposal responses use JSON-object mode. Generation reserves 3,072 output tokens and uses at most two truncated development-feedback records. These bounds keep the small pilot within provider payload limits.
+
+The runner refuses an existing output directory. Successful calls share a provider-level pacing clock. When headers expose a token-per-minute limit, the client targets at most 75 percent of it. Receipts retain safe quota headers and pacing durations. A failed request never receives a fabricated fitness score. It records invalid arms and returns a nonzero exit status when any arm is incomplete. HTTP 401, 429, and transient server errors receive at most three attempts with exponential delays. A persistent authentication or rate-limit failure closes that client lane for the rest of the run. A hard cap limits each provider to 2,900 attempts per process.
 
 ## Evaluation controls
 
