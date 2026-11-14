@@ -75,6 +75,13 @@ Every evolved variant must pass:
 4. **Semantic preservation** — Must not drift from original purpose
 5. **PR review** — All changes go through human review, never direct commit
 
+## Experimental prediction-guided search
+
+The additive [RSI-inspired comparison](docs/rsi-anything.md) runs native GEPA,
+prediction-guided selection, and an equal-budget random control on a frozen
+static-review fixture. It seals every search before holdout evaluation and records
+provider failures as invalid runs. It does not deploy skills or reproduce JEPA.
+
 ## Full Plan
 
 See [PLAN.md](PLAN.md) for the complete architecture, evaluation data strategy, constraints, benchmarks integration, and phased timeline.
