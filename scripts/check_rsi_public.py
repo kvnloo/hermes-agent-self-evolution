@@ -23,6 +23,10 @@ def check(path: Path, aggregate=False):
         errors.append(f'{path}: private path or host identifier')
     if path.suffix == '.py' and 'reuse-checked:' not in (ast.get_docstring(ast.parse(text)) or ''):
         errors.append(f'{path}: missing reuse-checked module docstring')
+    if aggregate:
+        from evolution.core.external_importers import _contains_secret
+        if _contains_secret(text):
+            errors.append(f'{path}: credential-shaped aggregate value')
     if aggregate and path.suffix == '.json':
         def visit(value):
             if isinstance(value, dict):
