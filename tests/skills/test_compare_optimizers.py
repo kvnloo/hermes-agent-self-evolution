@@ -99,6 +99,17 @@ def test_changed_output_directory_cannot_overwrite_evidence(tmp_path):
     assert (out / 'important.txt').read_text() == 'keep'
 
 
+def test_provider_pacing_uses_observed_token_limit():
+    assert experiment.quota_delay({'x-ratelimit-limit-tokens': '8000'}, {'total_tokens': 1000}) == 10
+    assert experiment.quota_delay({}, {}) == 2
+
+
+def test_empty_body_is_not_a_valid_skill_candidate(tmp_path):
+    evaluator = experiment.DevelopmentEvaluator(Mock(), 0, 1, tmp_path, 'name: demo\ndescription: review',
+                                                 'Review supplied code carefully.', {})
+    assert not evaluator.admissible('   ')
+
+
 def test_provider_backoff_is_bounded_and_receipts_redact_secrets(tmp_path, monkeypatch):
     from openai import RateLimitError
     response = SimpleNamespace(status_code=429, headers={}, request=SimpleNamespace())
