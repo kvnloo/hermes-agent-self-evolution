@@ -89,6 +89,27 @@ def test_provider_failure_invalidates_rows_without_fabricated_scores(tmp_path):
     assert all(row['final_holdout_score'] is None for row in summary['rows'])
 
 
+def test_gepa_cannot_hide_a_failed_proposal_or_retry_the_provider(tmp_path):
+    skill, data = fixtures(tmp_path)
+    generation_calls = []
+    client = SimpleNamespace(context={})
+
+    def complete(messages, *, purpose, seed, max_tokens):
+        if purpose == 'generation':
+            generation_calls.append(client.context['arm'])
+            raise experiment.EvaluationFailure('malformed_proposal')
+        return json.dumps({'passed': True, 'security_concerns': [], 'logic_errors': [],
+                           'suggestions': [], 'summary': 'correct review'})
+
+    client.complete = complete
+    summary = experiment.run_comparison(skill, data, tmp_path / 'failed-proposals', (0,),
+                                        2, 1, 2, client, client)
+    assert all(row['status'] == 'invalid' for row in summary['rows'])
+    assert all(row['reason'] == 'malformed_proposal' for row in summary['rows'])
+    assert sorted(generation_calls) == ['gepa', 'guided', 'random']
+    assert all(row['holdout_calls'] == 0 for row in summary['rows'])
+
+
 def test_changed_output_directory_cannot_overwrite_evidence(tmp_path):
     skill, data = fixtures(tmp_path)
     out = tmp_path / 'existing'
