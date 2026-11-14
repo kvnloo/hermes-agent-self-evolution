@@ -24,6 +24,8 @@ def test_public_boundary_rejects_raw_fields_and_private_paths(tmp_path):
     assert check(artifact, aggregate=True)
     artifact.write_text(json.dumps({'path': '/' + 'mnt' + '/private-data'}))
     assert check(artifact, aggregate=True)
+    artifact.write_text(json.dumps({'unexpected': 'ghp_' + 'a' * 32}))
+    assert check(artifact, aggregate=True)
     artifact.write_text(json.dumps({'score': 0.5, 'source_commit': 'a' * 40}))
     assert check(artifact, aggregate=True) == []
 
