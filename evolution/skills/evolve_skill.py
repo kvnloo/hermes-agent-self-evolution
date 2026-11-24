@@ -232,7 +232,12 @@ def evolve(
     avg_baseline = sum(baseline_scores) / max(1, len(baseline_scores))
     avg_evolved = sum(evolved_scores) / max(1, len(evolved_scores))
     improvement = avg_evolved - avg_baseline
-    successful_improvement = _is_successful_improvement(skill["raw"], evolved_full, improvement)
+    # Compare like with like: reassemble_skill() normalizes whitespace around the
+    # frontmatter, so comparing evolved_full with the raw file would report a
+    # change for a byte-identical body.
+    baseline_full = reassemble_skill(skill["frontmatter"], skill["body"])
+    skill_changed = evolved_full != baseline_full
+    successful_improvement = _is_successful_improvement(baseline_full, evolved_full, improvement)
 
     # Is the improvement real, or noise on a small holdout set? (PLAN.md step 5)
     # Pure-local, zero-cost: a paired permutation test + bootstrap CI over the
@@ -308,6 +313,7 @@ def evolve(
         "holdout_examples": len(dataset.holdout),
         "elapsed_seconds": elapsed,
         "constraints_passed": all_pass,
+        "skill_changed": skill_changed,
         "significance": sig.to_dict(),
     }
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
@@ -317,7 +323,7 @@ def evolve(
     if successful_improvement and sig.accepted:
         console.print(f"\n[bold green]✓ Statistically significant improvement — {sig.verdict}[/bold green]")
         console.print(f"  Review the diff: diff {output_dir}/baseline_skill.md {output_dir}/evolved_skill.md")
-    elif evolved_full == skill["raw"]:
+    elif not skill_changed:
         console.print(f"\n[yellow]⚠ Evolution produced no artifact change (score delta: {improvement:+.3f})[/yellow]")
         console.print("  Identical baseline/evolved files are treated as a no-op run")
     elif improvement > 0:
